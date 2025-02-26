@@ -16,10 +16,10 @@ Untuk menjalankan bot, gunakan perintah:
 ```sh
 py run.py
 ```
-### Jalankan Wallet Converter
-pilih 1 
-akan menghasilkan file wallets.json 
-mengambil dari wallet.txt
-### Jalankan TakerBOT
-pilih 2
-bot akan mengambil data dari wallets.json
+### Pastikan wallet.txt berisi :
+address1:privatekey1
+address2:privatekey2
+address3:privatekey3
+
+Ketika pertama menjalankan 
+wajib jalankan wallet converter terlebih dulu
