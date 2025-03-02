@@ -22,6 +22,11 @@ CONTRACT_ABI = [
     }
 ]
 
+web3 = Web3(Web3.HTTPProvider(PROVIDER_URL))
+if not web3.is_connected():
+    log("TakerBOT", "Failed to connect to Ethereum node.", "ERROR")
+    exit(1)
+
 def read_wallets():
     try:
         with open(os.path.join("data", "wallets.json"), "r") as file:
@@ -34,62 +39,60 @@ def read_wallets():
         log("TakerBOT", "File wallets.json not found. Exiting...", "ERROR")
         exit(1)
 
-def get(url, token=None):
+def get(url, token=None, retries=3):
     headers = HEADERS.copy()
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    try:
-        response = requests.get(API_URL + url, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        log("TakerBOT", f"GET request failed: {e}", "ERROR")
-        return None
+    for _ in range(retries):
+        try:
+            response = requests.get(API_URL + url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            log("TakerBOT", f"GET request failed: {e}. Retrying...", "ERROR")
+            time.sleep(3)
+    return None
 
-def post(url, data, token=None):
+def post(url, data, token=None, retries=3):
     headers = HEADERS.copy()
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    try:
-        response = requests.post(API_URL + url, json=data, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        log("TakerBOT", f"POST request failed: {e}", "ERROR")
-        return None
+    for _ in range(retries):
+        try:
+            response = requests.post(API_URL + url, json=data, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            log("TakerBOT", f"POST request failed: {e}. Retrying...", "ERROR")
+            time.sleep(3)
+    return None
 
 def sign_message(message, private_key):
     try:
         encoded_message = encode_defunct(text=message)
-        signed_message = Web3().eth.account.sign_message(encoded_message, private_key=private_key)
+        signed_message = web3.eth.account.sign_message(encoded_message, private_key=private_key)
         return signed_message.signature.hex()
     except Exception as e:
         log("TakerBOT", f"Error signing message: {e}", "ERROR")
         return None
 
 def get_nonce(wallet_address):
-    for _ in range(3):  
-        response = post("wallet/generateNonce", {"walletAddress": wallet_address})
-        if response and "data" in response and "nonce" in response["data"]:
-            return response["data"]["nonce"]
-        log("TakerBOT", "Failed to get nonce. Retrying...", "WARN")
-        time.sleep(3)
-    log("TakerBOT", "Failed to get nonce after retries.", "ERROR")
+    response = post("wallet/generateNonce", {"walletAddress": wallet_address})
+    if response and "data" in response and "nonce" in response["data"]:
+        return response["data"]["nonce"]
+    log("TakerBOT", "Failed to get nonce.", "ERROR")
     return None
 
 def login(address, message, signature):
-    for _ in range(3):  
-        response = post("wallet/login", {
-            "address": address,
-            "invitationCode": "9M8HC",
-            "message": message,
-            "signature": signature,
-        })
-        if response and "data" in response and "token" in response["data"]:
-            return response["data"]["token"]
-        log("TakerBOT", "Failed to login. Retrying...", "WARN")
-        time.sleep(3)
-    log("TakerBOT", "Failed to login after retries.", "ERROR")
+    response = post("wallet/login", {
+        "address": address,
+        "invitationCode": "M3XT6",
+        "message": message,
+        "signature": signature,
+    })
+    if response and "data" in response and "token" in response["data"]:
+        return response["data"]["token"]
+    log("TakerBOT", "Failed to login.", "ERROR")
     return None
 
 def get_user(token):
@@ -123,17 +126,24 @@ def start_mine(token):
 
 def activate_mining(private_key):
     try:
-        web3 = Web3(Web3.HTTPProvider(PROVIDER_URL))
         wallet = web3.eth.account.from_key(private_key)
         contract = web3.eth.contract(address=CONTRACT_ADDRESS, abi=CONTRACT_ABI)
+
+        nonce = web3.eth.get_transaction_count(wallet.address, 'pending')
+        gas = contract.functions.active().estimate_gas({'from': wallet.address})
+        gas_price = web3.eth.gas_price
+
         tx = contract.functions.active().build_transaction({
             "from": wallet.address,
-            "gas": 200000,
-            "nonce": web3.eth.get_transaction_count(wallet.address),
+            "gas": gas,
+            "gasPrice": gas_price,
+            "nonce": nonce,
         })
+
         signed_tx = web3.eth.account.sign_transaction(tx, private_key)
         tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
         receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+
         log("TakerBOT", f"Transaction confirmed. Hash: {tx_hash.hex()}", "INFO")
         return tx_hash.hex()
     except Exception as e:
@@ -207,6 +217,7 @@ def main():
 
         log("TakerBOT", f"Total wallets: {total_wallets}, Processed: {processed_wallets}, Skipped: {skipped_wallets}", "INFO")
         log("TakerBOT", "All wallets processed. Cooling down for 1 hour...", "INFO")
-        time.sleep(60 * 60) 
+        time.sleep(60 * 60)
+
 if __name__ == "__main__":
     main()
