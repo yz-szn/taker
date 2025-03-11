@@ -12,7 +12,7 @@ def convert_wallet_to_json(input_file, output_file):
             line = line.strip()
             if ':' in line:
                 address, private_key = line.split(':', 1)
-                wallets.append({"address": address, "privateKey": private_key})
+                wallets.append({"address": address, "private_key": private_key})
         
         with open(output_file, 'w') as json_file:
             json.dump(wallets, json_file, indent=2)
